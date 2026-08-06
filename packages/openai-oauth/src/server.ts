@@ -9,6 +9,7 @@ import {
 	type OpenAIOAuthTransport,
 } from "@openai-oauth/core"
 import { openaiCredentials } from "@openai-oauth/local"
+import { handleAudioTranscriptionRequest } from "./audio-transcriptions.js"
 import { handleChatCompletionsRequest } from "./chat-completions.js"
 import {
 	handleImageEditRequest,
@@ -81,6 +82,13 @@ const handleRoutes = async (
 
 	if (request.method === "POST" && url.pathname === "/v1/images/edits") {
 		return handleImageEditRequest(request, client)
+	}
+
+	if (
+		request.method === "POST" &&
+		url.pathname === "/v1/audio/transcriptions"
+	) {
+		return handleAudioTranscriptionRequest(request, client)
 	}
 
 	return toErrorResponse("Route not found.", 404, "not_found_error")

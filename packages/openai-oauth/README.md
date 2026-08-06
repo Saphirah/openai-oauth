@@ -33,9 +33,18 @@ Supported endpoints:
 - `/v1/chat/completions`
 - `/v1/images/generations`
 - `/v1/images/edits`
+- `/v1/audio/transcriptions`
 - `/v1/models`
 
 Image generation uses JSON requests. Image editing uses the standard OpenAI multipart request with one or more `image` fields. Both return base64 image data and usage metadata.
+
+Audio transcription accepts the standard multipart `file` and `model` fields and forwards the file to ChatGPT's dedicated OAuth transcription backend—the same path used by Codex dictation. The required `model` field accepts `whisper-1`, `gpt-4o-transcribe`, or `gpt-4o-mini-transcribe` for client compatibility; the ChatGPT backend chooses its model. FLAC, WAV, MP3, M4A/MP4, WebM, and OGG inputs up to 50 MiB are supported. The `json` (default) and `text` response formats are available. Optional `language` and `prompt` fields are validated but are not forwarded by the ChatGPT OAuth path.
+
+```bash
+curl http://127.0.0.1:10531/v1/audio/transcriptions \
+  -F file=@recording.mp3 \
+  -F model=whisper-1
+```
 
 ```bash
 curl http://127.0.0.1:10531/v1/images/generations \

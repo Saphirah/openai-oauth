@@ -146,6 +146,7 @@ For more information on each of the packages, refer to package-specific `README.
 - Working Endpoints:
   - `/v1/responses`
   - `/v1/chat/completions`
+  - `/v1/audio/transcriptions`
   - `/v1/models` (account-aware by default, or overridden with `--models`)
 - Streaming Responses
 - Toolcalls
@@ -479,6 +480,18 @@ const result = await client.images.generate({
 ```
 
 Image editing uses the same clients through `generateImage()` or `client.images.edit()`. Image streaming, masks, custom output formats, and variations are not currently supported.
+
+## Audio Transcription
+
+The dev proxy exposes the OpenAI-compatible `/v1/audio/transcriptions` endpoint. With ChatGPT OAuth it forwards the multipart audio file to ChatGPT's dedicated `/backend-api/transcribe` endpoint, which is the same path used by Codex dictation. Audio is not sent as `input_audio` to the Codex Responses endpoint.
+
+```bash
+curl http://127.0.0.1:10531/v1/audio/transcriptions \
+  -F file=@recording.mp3 \
+  -F model=whisper-1
+```
+
+The required `model` field accepts `whisper-1`, `gpt-4o-transcribe`, or `gpt-4o-mini-transcribe` for client compatibility; ChatGPT OAuth transcription chooses its backend model. FLAC, WAV, MP3, M4A/MP4, WebM, and OGG inputs up to 50 MiB are supported. Responses can use `response_format=json` (the default) or `response_format=text`; streaming and timestamp/diarization formats are not supported. The ChatGPT backend currently receives only the audio file, so optional `language` and `prompt` hints are validated but not forwarded.
 
 ## Sign in with ChatGPT Setup
 

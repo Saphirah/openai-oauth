@@ -124,6 +124,7 @@ export type OpenAIOAuthTransport = {
 	baseURL: string
 	fetch: FetchFunction
 	request: (path: string, init?: RequestInit) => Promise<Response>
+	requestChatGPT: (path: string, init?: RequestInit) => Promise<Response>
 }
 
 type RequestParts = {
@@ -467,6 +468,17 @@ const resolveBaseURL = (baseURL?: string): string =>
 
 const resolveOpenAIBaseURL = (baseURL?: string): string =>
 	withoutTrailingSlash(baseURL) ?? DEFAULT_OPENAI_COMPATIBLE_BASE_URL
+
+const resolveChatGPTBackendBaseURL = (baseURL?: string): string => {
+	const url = new URL(resolveBaseURL(baseURL))
+	const pathname = url.pathname.replace(/\/$/, "")
+	url.pathname = pathname.endsWith("/codex")
+		? pathname.slice(0, -"/codex".length)
+		: pathname
+	url.search = ""
+	url.hash = ""
+	return url.toString().replace(/\/$/, "")
+}
 
 const resolveTargetUrl = (input: string, baseURL: string): string => {
 	const base = new URL(baseURL)
@@ -1028,6 +1040,8 @@ export const createOpenAIOAuthTransport = (
 ): OpenAIOAuthTransport => {
 	const baseURL = resolveOpenAIBaseURL(settings.openAIBaseURL)
 	const fetch = createCodexOAuthFetch(settings)
+	const upstreamFetch = pickFetch(settings.fetch)
+	const chatGPTBackendBaseURL = resolveChatGPTBackendBaseURL(settings.baseURL)
 
 	return {
 		kind: "openai-compatible",
@@ -1035,5 +1049,27 @@ export const createOpenAIOAuthTransport = (
 		fetch,
 		request: (path, init) =>
 			fetch(resolveOpenAICompatibleUrl(path, baseURL), init),
+		requestChatGPT: async (path, init) => {
+			const auth = await resolveAuth(settings.auth)
+			const headers = new Headers(settings.headers)
+			new Headers(init?.headers).forEach((value, key) => {
+				headers.set(key, value)
+			})
+			if (!headers.has("user-agent")) {
+				headers.set(
+					"User-Agent",
+					`codex_cli_rs/${settings.codexVersion ?? "0.0.0"}`,
+				)
+			}
+			applyAuthHeaders(headers, auth)
+
+			return upstreamFetch(
+				new URL(path.replace(/^\/+/, ""), `${chatGPTBackendBaseURL}/`).toString(),
+				{
+					...init,
+					headers,
+				},
+			)
+		},
 	}
 }

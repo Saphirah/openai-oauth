@@ -172,6 +172,28 @@ describe("createCodexOAuthFetch", () => {
 		])
 	})
 
+	test("sends authenticated requests to the ChatGPT backend outside Codex", async () => {
+		const fetch = createMockFetch()
+		const connection = createOpenAIOAuthTransport({ auth: session, fetch })
+		const form = new FormData()
+		form.set("file", new Blob(["audio"], { type: "audio/wav" }), "audio.wav")
+
+		await connection.requestChatGPT("/transcribe", {
+			method: "POST",
+			body: form,
+		})
+
+		expect(upstreamCalls(fetch)).toHaveLength(1)
+		const [[url, init]] = upstreamCalls(fetch)
+		expect(url).toBe("https://chatgpt.com/backend-api/transcribe")
+		expect(init?.body).toBe(form)
+		const headers = new Headers(init?.headers)
+		expect(headers.get("authorization")).toBe("Bearer access-token")
+		expect(headers.get("chatgpt-account-id")).toBe("acct-1")
+		expect(headers.get("user-agent")).toBe("codex_cli_rs/0.0.0")
+		expect(headers.has("content-type")).toBe(false)
+	})
+
 	test("injects oauth headers and normalizes responses requests", async () => {
 		const fetch = createMockFetch()
 

@@ -471,6 +471,109 @@ describe("openai oauth server", () => {
 		])
 	})
 
+	test("transcribes multipart audio through the ChatGPT backend", async () => {
+		const authFilePath = await createAuthFile()
+		let transcriptionBody: FormData | undefined
+		const fetch = vi.fn(
+			async (input: RequestInfo | URL, init?: RequestInit) => {
+				const url = String(input)
+				expect(url).toBe("https://chatgpt.com/backend-api/transcribe")
+				expect(new Headers(init?.headers).get("authorization")).toMatch(
+					/^Bearer /,
+				)
+				expect(new Headers(init?.headers).get("chatgpt-account-id")).toBeTruthy()
+				expect(init?.body).toBeInstanceOf(FormData)
+				transcriptionBody = init?.body as FormData
+				return Response.json({
+					text: "Hallo Welt.",
+					asset_pointer: "file-service://audio",
+				})
+			},
+		)
+		const handler = createOpenAIOAuthFetchHandler({
+			authFilePath,
+			ensureFresh: false,
+			fetch,
+		})
+		const form = new FormData()
+		form.set("model", "whisper-1")
+		form.set("language", "de")
+		form.set("prompt", "OpenAI OAuth")
+		form.set(
+			"file",
+			new Blob([new Uint8Array([1, 2, 3])], { type: "audio/mpeg" }),
+			"recording.mp3",
+		)
+
+		const response = await handler(
+			new Request("http://localhost/v1/audio/transcriptions", {
+				method: "POST",
+				body: form,
+			}),
+		)
+
+		expect(response.status).toBe(200)
+		await expect(response.json()).resolves.toEqual({ text: "Hallo Welt." })
+		const upstreamFile = transcriptionBody?.get("file")
+		expect(upstreamFile).toBeInstanceOf(Blob)
+		expect((upstreamFile as Blob).type).toBe("audio/mpeg")
+		expect((upstreamFile as Blob).size).toBe(3)
+		expect(transcriptionBody?.get("model")).toBeNull()
+		expect(transcriptionBody?.get("language")).toBeNull()
+		expect(transcriptionBody?.get("prompt")).toBeNull()
+
+		await fs.rm(path.dirname(authFilePath), {
+			recursive: true,
+			force: true,
+		})
+	})
+
+	test("supports text transcription responses and validates formats", async () => {
+		const authFilePath = await createAuthFile()
+		const handler = createOpenAIOAuthFetchHandler({
+			authFilePath,
+			ensureFresh: false,
+			fetch: async () => Response.json({ text: "plain transcript" }),
+		})
+		const textForm = new FormData()
+		textForm.set("model", "gpt-4o-mini-transcribe")
+		textForm.set("response_format", "text")
+		textForm.set("file", new Blob(["audio"]), "recording.wav")
+
+		const textResponse = await handler(
+			new Request("http://localhost/v1/audio/transcriptions", {
+				method: "POST",
+				body: textForm,
+			}),
+		)
+		expect(textResponse.status).toBe(200)
+		expect(textResponse.headers.get("content-type")).toContain("text/plain")
+		await expect(textResponse.text()).resolves.toBe("plain transcript")
+
+		const invalidForm = new FormData()
+		invalidForm.set("model", "whisper-1")
+		invalidForm.set("response_format", "verbose_json")
+		invalidForm.set("file", new Blob(["audio"]), "recording.wav")
+		const invalidResponse = await handler(
+			new Request("http://localhost/v1/audio/transcriptions", {
+				method: "POST",
+				body: invalidForm,
+			}),
+		)
+		expect(invalidResponse.status).toBe(400)
+		await expect(invalidResponse.json()).resolves.toMatchObject({
+			error: {
+				message:
+					"`response_format` must be `json` or `text` for Codex-backed transcriptions.",
+			},
+		})
+
+		await fs.rm(path.dirname(authFilePath), {
+			recursive: true,
+			force: true,
+		})
+	})
+
 	test("emits a chat error log when messages is invalid", async () => {
 		const requestLogger = vi.fn()
 		const handler = createOpenAIOAuthFetchHandler({
