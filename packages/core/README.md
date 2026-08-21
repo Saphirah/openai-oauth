@@ -27,7 +27,9 @@ const baseURL = transport.baseURL;
 const fetch = transport.fetch;
 ```
 
-The transport supports Responses, model discovery, image generation, and multipart image editing. Client adapters build higher-level interfaces such as Chat Completions on top.
+The transport supports Responses, model discovery, image generation, multipart image editing, and authenticated Codex Realtime call creation. Client adapters build higher-level interfaces such as Chat Completions and the local OpenAI-compatible `/v1/realtime/calls` proxy on top.
+
+Realtime helpers are platform-neutral. `createCodexRealtimeCall()` performs SDP call creation, while `connectCodexRealtime()` accepts an injected WebRTC peer connection from Node.js or a browser and exposes `appendAudio()`, `streamAudio()`, `sendText()`, PCM output events, transcript events, remote-track events, and lifecycle control. Speaking while the model is responding performs the same server-side barge-in as Codex Voice; `interrupt(firstSpeechChunk)` is an explicit alias for that first audio append. `connectCodexRealtimeBrowser()` is the optional DOM convenience layer.
 
 Create an OAuth request:
 

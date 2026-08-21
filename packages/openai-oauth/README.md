@@ -34,6 +34,7 @@ Supported endpoints:
 - `/v1/images/generations`
 - `/v1/images/edits`
 - `/v1/audio/transcriptions`
+- `/v1/realtime/calls`
 - `/v1/models`
 
 Image generation uses JSON requests. Image editing uses the standard OpenAI multipart request with one or more `image` fields. Both return base64 image data and usage metadata.
@@ -45,6 +46,26 @@ curl http://127.0.0.1:10531/v1/audio/transcriptions \
   -F file=@recording.mp3 \
   -F model=whisper-1
 ```
+
+Realtime voice uses the OpenAI-compatible WebRTC call-creation shape. The proxy converts the public `realtime` session to the current Codex Frameless Bidi / Quicksilver v2 session and returns the SDP answer and upstream `Location` call ID. Media and realtime events flow directly over the resulting peer connection.
+
+```bash
+curl http://127.0.0.1:10531/v1/realtime/calls \
+  -F "sdp=<offer.sdp;type=application/sdp" \
+  -F 'session={"type":"realtime","audio":{"output":{"voice":"cove"}}};type=application/json'
+```
+
+The mirrored Codex defaults are model `gpt-live-1-boulder-alpha`, signed 16-bit little-endian mono 24 kHz PCM, and voice `cove`.
+
+Backend and browser clients can use the exported helpers:
+
+- `createCodexRealtimeCall()` performs only authenticated SDP call creation.
+- `connectCodexRealtime()` accepts any injected browser or Node.js WebRTC peer connection. It exposes raw PCM input/output, transcript events, text input, natural speech interruption, and lifecycle controls without depending on a particular microphone, speaker, or WebRTC package.
+- `connectCodexRealtimeBrowser()` optionally handles browser microphone capture and audio playback.
+
+For backend audio, pass any `AsyncIterable` of 24 kHz mono PCM16 chunks—including a Node.js `Readable`—to `connection.streamAudio(source)`, or call `appendAudio(chunk)` yourself. Consume decoded output chunks with `onAudio`; each event contains a `Uint8Array`, sample rate, and channel count. Streaming speech while the assistant is talking performs server-side barge-in. `interrupt(firstSpeechChunk)` names that operation explicitly; Frameless has no separate cancel command.
+
+This transport establishes realtime speech-to-speech. Reproducing Codex task delegation additionally requires an application-side agent controller.
 
 ```bash
 curl http://127.0.0.1:10531/v1/images/generations \

@@ -17,6 +17,7 @@ import {
 } from "./images.js"
 import { createRequestLogger } from "./logging.js"
 import { createModelResolver } from "./models.js"
+import { handleRealtimeCallRequest } from "./realtime.js"
 import { handleResponsesRequest } from "./responses.js"
 import {
 	DEFAULT_HOST,
@@ -89,6 +90,10 @@ const handleRoutes = async (
 		url.pathname === "/v1/audio/transcriptions"
 	) {
 		return handleAudioTranscriptionRequest(request, client)
+	}
+
+	if (request.method === "POST" && url.pathname === "/v1/realtime/calls") {
+		return handleRealtimeCallRequest(request, client)
 	}
 
 	return toErrorResponse("Route not found.", 404, "not_found_error")

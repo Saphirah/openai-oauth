@@ -147,6 +147,7 @@ For more information on each of the packages, refer to package-specific `README.
   - `/v1/responses`
   - `/v1/chat/completions`
   - `/v1/audio/transcriptions`
+  - `/v1/realtime/calls`
   - `/v1/models` (account-aware by default, or overridden with `--models`)
 - Streaming Responses
 - Toolcalls
@@ -492,6 +493,49 @@ curl http://127.0.0.1:10531/v1/audio/transcriptions \
 ```
 
 The required `model` field accepts `whisper-1`, `gpt-4o-transcribe`, or `gpt-4o-mini-transcribe` for client compatibility; ChatGPT OAuth transcription chooses its backend model. FLAC, WAV, MP3, M4A/MP4, WebM, and OGG inputs up to 50 MiB are supported. Responses can use `response_format=json` (the default) or `response_format=text`; streaming and timestamp/diarization formats are not supported. The ChatGPT backend currently receives only the audio file, so optional `language` and `prompt` hints are validated but not forwarded.
+
+## Realtime Voice over WebRTC
+
+The dev proxy exposes the OpenAI-compatible `POST /v1/realtime/calls` endpoint. It accepts the standard multipart `sdp` and optional JSON `session` fields, translates the public Realtime session into the current Codex Frameless Bidi / Quicksilver v2 session used by ChatGPT Voice, and creates the call through ChatGPT OAuth. The response body is the remote SDP answer; the `Location` header contains the realtime call ID.
+
+```bash
+curl http://127.0.0.1:10531/v1/realtime/calls \
+  -F "sdp=<offer.sdp;type=application/sdp" \
+  -F 'session={"type":"realtime","instructions":"Answer briefly.","audio":{"output":{"voice":"cove"}}};type=application/json'
+```
+
+Complete a WebRTC peer connection with the returned SDP answer. The transport is not browser-specific: `connectCodexRealtime()` accepts an injected peer connection from any browser or Node.js WebRTC implementation. `connectCodexRealtimeBrowser()` is only an optional browser convenience wrapper.
+
+For a backend-only Node.js audio pipeline, feed signed 16-bit little-endian, mono, 24 kHz PCM chunks from any async microphone stream into `streamAudio()` or `appendAudio()`. Model audio arrives independently as decoded PCM chunks through `onAudio`, so a DOM audio element or browser media track is not required. A negotiated remote track is still exposed through `onTrack` when the selected WebRTC implementation provides one. No microphone, speaker, or WebRTC package is imposed by this library.
+
+```ts
+import { connectCodexRealtime } from "openai-oauth";
+
+// `peerConnection`, `microphone`, and `speaker` come from the Node
+// WebRTC/audio implementation selected by the application.
+const voice = await connectCodexRealtime({
+  peerConnection,
+  instructions: "Answer briefly.",
+  onAudio({ data, sampleRate, numChannels }) {
+    speaker.write(data, { sampleRate, channels: numChannels });
+  },
+  onTranscript(event) {
+    process.stdout.write(`${event.role}: ${event.text}`);
+  },
+});
+
+await voice.streamAudio(microphone);
+
+// Speech streamed while the assistant talks interrupts it server-side.
+// To name the first barge-in frame explicitly:
+voice.interrupt(firstSpeechPcmChunk);
+```
+
+`sendText()`, `appendAudio()`, `streamAudio()`, `interrupt(audio)`, and `close()` cover backend control. Microphone bytes, model PCM output, transcripts, and realtime events use the WebRTC data channel. The local HTTP proxy is used only to create the authenticated call.
+
+The currently mirrored Codex Frameless defaults are model `gpt-live-1-boulder-alpha`, 24 kHz mono PCM16 audio, and voice `cove`. Supported voices are `juniper`, `maple`, `spruce`, `ember`, `vale`, `breeze`, `arbor`, `sol`, and `cove`.
+
+This endpoint and client controller create the low-latency voice session. Codex's higher-level task delegation and handoff behavior still requires an application-side agent controller; it is not automatically supplied by the transport layer.
 
 ## Sign in with ChatGPT Setup
 
