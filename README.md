@@ -146,6 +146,7 @@ For more information on each of the packages, refer to package-specific `README.
 - Working Endpoints:
   - `/v1/responses`
   - `/v1/chat/completions`
+  - `/v1/files`
   - `/v1/audio/transcriptions`
   - `/v1/realtime/calls`
   - `/v1/models` (account-aware by default, or overridden with `--models`)
@@ -481,6 +482,40 @@ const result = await client.images.generate({
 ```
 
 Image editing uses the same clients through `generateImage()` or `client.images.edit()`. Image streaming, masks, custom output formats, and variations are not currently supported.
+
+## PDF and File Inputs
+
+The dev proxy exposes an OpenAI-compatible `POST /v1/files` upload. It uses the same ChatGPT hosted-file flow as Codex: the proxy creates a file reservation through OAuth, uploads the bytes to the returned blob URL, finalizes the upload, and translates the returned `file_id` to a signed `input_file.file_url` when you call `/v1/responses`. No Platform API key or vector store is required.
+
+```ts
+import fs from "node:fs";
+import OpenAI from "openai";
+
+const client = new OpenAI({
+	baseURL: "http://127.0.0.1:10531/v1",
+	apiKey: "unused",
+});
+
+const file = await client.files.create({
+	file: fs.createReadStream("report.pdf"),
+	purpose: "user_data",
+});
+
+const response = await client.responses.create({
+	model: "gpt-5.6-terra",
+	input: [{
+		role: "user",
+		content: [
+			{ type: "input_file", file_id: file.id, detail: "high" },
+			{ type: "input_text", text: "Summarize this PDF." },
+		],
+	}],
+});
+
+console.log(response.output_text);
+```
+
+Direct `input_file.file_url` and Base64 `input_file.file_data` requests continue to work without a prior upload. PDFs provide extracted text and page images to vision-capable models; use `detail: "low"`, `"high"`, or `"auto"` to control page-image detail. Uploads and the combined files in one Responses request are limited to 50 MiB.
 
 ## Audio Transcription
 

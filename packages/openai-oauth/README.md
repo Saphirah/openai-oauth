@@ -31,11 +31,38 @@ Supported endpoints:
 
 - `/v1/responses`
 - `/v1/chat/completions`
+- `/v1/files`
 - `/v1/images/generations`
 - `/v1/images/edits`
 - `/v1/audio/transcriptions`
 - `/v1/realtime/calls`
 - `/v1/models`
+
+PDFs and other supported documents can be uploaded with the standard OpenAI Files API and passed to Responses by file ID. The upload is stored through ChatGPT OAuth and resolved to a signed file URL before the model request; no Platform API key is needed.
+
+```ts
+import fs from "node:fs";
+import OpenAI from "openai";
+
+const client = new OpenAI({
+  baseURL: "http://127.0.0.1:10531/v1",
+  apiKey: "unused",
+});
+const file = await client.files.create({
+  file: fs.createReadStream("report.pdf"),
+  purpose: "user_data",
+});
+const response = await client.responses.create({
+  model: "gpt-5.6-terra",
+  input: [{
+    role: "user",
+    content: [
+      { type: "input_file", file_id: file.id },
+      { type: "input_text", text: "Summarize this PDF." },
+    ],
+  }],
+});
+```
 
 Image generation uses JSON requests. Image editing uses the standard OpenAI multipart request with one or more `image` fields. Both return base64 image data and usage metadata.
 

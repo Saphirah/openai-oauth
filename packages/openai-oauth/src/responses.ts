@@ -1,4 +1,9 @@
 import type { OpenAIOAuthTransport } from "@openai-oauth/core"
+import {
+	HostedFileError,
+	type HostedInputFileStore,
+	resolveHostedInputFiles,
+} from "./files.js"
 import { copyUpstreamResponse, isRecord, toErrorResponse } from "./shared.js"
 
 const usesServerReplayState = (body: Record<string, unknown>): boolean =>
@@ -14,6 +19,7 @@ const usesServerReplayState = (body: Record<string, unknown>): boolean =>
 export const handleResponsesRequest = async (
 	request: Request,
 	client: OpenAIOAuthTransport,
+	fileStore: HostedInputFileStore,
 ): Promise<Response> => {
 	const body = await request.json()
 	if (!isRecord(body)) {
@@ -26,12 +32,26 @@ export const handleResponsesRequest = async (
 		)
 	}
 
+	let resolvedBody: Record<string, unknown>
+	try {
+		resolvedBody = await resolveHostedInputFiles(
+			body,
+			fileStore,
+			request.signal,
+		)
+	} catch (error) {
+		if (error instanceof HostedFileError) {
+			return toErrorResponse(error.message, error.status, error.type)
+		}
+		throw error
+	}
+
 	const upstream = await client.request("/responses", {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
 		},
-		body: JSON.stringify(body),
+		body: JSON.stringify(resolvedBody),
 		signal: request.signal,
 	})
 	return copyUpstreamResponse(upstream)

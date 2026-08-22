@@ -12,6 +12,12 @@ import { openaiCredentials } from "@openai-oauth/local"
 import { handleAudioTranscriptionRequest } from "./audio-transcriptions.js"
 import { handleChatCompletionsRequest } from "./chat-completions.js"
 import {
+	HostedInputFileStore,
+	handleFileListRequest,
+	handleFileRetrieveRequest,
+	handleFileUploadRequest,
+} from "./files.js"
+import {
 	handleImageEditRequest,
 	handleImageGenerationRequest,
 } from "./images.js"
@@ -37,6 +43,7 @@ const handleRoutes = async (
 	request: Request,
 	provider: OpenAIOAuthProvider,
 	client: OpenAIOAuthTransport,
+	fileStore: HostedInputFileStore,
 	resolveModels: () => Promise<string[]>,
 	requestLogger: ReturnType<typeof createRequestLogger>,
 ): Promise<Response> => {
@@ -69,8 +76,26 @@ const handleRoutes = async (
 		}
 	}
 
+	if (url.pathname === "/v1/files") {
+		if (request.method === "POST") {
+			return handleFileUploadRequest(request, fileStore)
+		}
+		if (request.method === "GET") {
+			return handleFileListRequest(fileStore)
+		}
+	}
+
+	const fileMatch = url.pathname.match(/^\/v1\/files\/([^/]+)$/)
+	if (request.method === "GET" && fileMatch?.[1]) {
+		return handleFileRetrieveRequest(
+			request,
+			fileStore,
+			decodeURIComponent(fileMatch[1]),
+		)
+	}
+
 	if (request.method === "POST" && url.pathname === "/v1/responses") {
-		return handleResponsesRequest(request, client)
+		return handleResponsesRequest(request, client, fileStore)
 	}
 
 	if (request.method === "POST" && url.pathname === "/v1/chat/completions") {
@@ -111,12 +136,14 @@ const createOpenAIOAuthRuntime = (settings: OpenAIOAuthServerOptions = {}) => {
 	const resolveModels = createModelResolver(client, settings.models)
 	const requestLogger = createRequestLogger(settings)
 
+	const fileStore = new HostedInputFileStore(client, settings.fetch)
 	const handler = async (request: Request): Promise<Response> => {
 		try {
 			return await handleRoutes(
 				request,
 				provider,
 				client,
+				fileStore,
 				resolveModels,
 				requestLogger,
 			)

@@ -39,7 +39,7 @@
 		"prepublishOnly": "bun run build",
 		"typecheck": "tsc --noEmit",
 		"test": "vitest run",
-		"test:live": "LIVE_CODEX_E2E=1 vitest run test/live.e2e.test.ts"
+		"test:live": "LIVE_CODEX_E2E=1 vitest run test/live.e2e.test.ts test/files.live.e2e.test.ts"
 	},
 	"dependencies": {
 		"@openai-oauth/ai-sdk": "workspace:*",
