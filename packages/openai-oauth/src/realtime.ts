@@ -3,7 +3,6 @@ import { copyUpstreamResponse, isRecord, toErrorResponse } from "./shared.js"
 
 const MAX_SDP_BYTES = 1024 * 1024
 const MAX_SESSION_BYTES = 256 * 1024
-const DEFAULT_CODEX_REALTIME_MODEL = "gpt-live-1-boulder-alpha"
 const DEFAULT_CODEX_REALTIME_VOICE = "cove"
 
 const CODEX_FRAMELESS_VOICES = new Set([
@@ -171,12 +170,6 @@ const normalizeRealtimeSession = (
 
 	const normalized: Record<string, unknown> = {
 		...session,
-		model:
-			typeof session.model === "string" &&
-			session.model !== "gpt-realtime" &&
-			session.model !== "gpt-realtime-1.5"
-				? session.model
-				: DEFAULT_CODEX_REALTIME_MODEL,
 		instructions:
 			typeof session.instructions === "string" ? session.instructions : "",
 		audio: {
@@ -199,6 +192,13 @@ const normalizeRealtimeSession = (
 	delete normalized.type
 	delete normalized.voice
 	delete normalized.output_modalities
+	if (
+		typeof session.model !== "string" ||
+		session.model === "gpt-realtime" ||
+		session.model === "gpt-realtime-1.5"
+	) {
+		delete normalized.model
+	}
 	if (isRecord(normalized.audio)) {
 		delete normalized.audio.input
 	}

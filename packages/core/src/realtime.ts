@@ -149,17 +149,21 @@ export const createCodexRealtimeSession = (
 		options.session ?? {},
 		options.voice ?? "cove",
 	)
-	return {
+	const model =
+		typeof session.model === "string" ? session.model : options.model
+	const normalized: Record<string, unknown> = {
 		...session,
-		model:
-			typeof session.model === "string"
-				? session.model
-				: (options.model ?? "gpt-live-1-boulder-alpha"),
 		instructions:
 			typeof session.instructions === "string"
 				? session.instructions
 				: (options.instructions ?? ""),
 	}
+	if (typeof model === "string") {
+		normalized.model = model
+	} else {
+		delete normalized.model
+	}
+	return normalized
 }
 
 const legacyTranscriptEventTypes = new Map<

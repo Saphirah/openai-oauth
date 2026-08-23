@@ -108,7 +108,6 @@ describe("realtime calls", () => {
 		expect(upstreamBody).toEqual({
 			sdp: "v=0\r\ns=offer\r\n",
 			session: {
-				model: "gpt-live-1-boulder-alpha",
 				instructions: "Answer briefly.",
 				audio: {
 					output: { voice: "cove" },
@@ -145,12 +144,48 @@ describe("realtime calls", () => {
 		expect(upstreamBody).toMatchObject({
 			sdp: "v=0\r\n",
 			session: {
-				model: "gpt-live-1-boulder-alpha",
 				instructions: "",
 				audio: {
 					output: { voice: "cove" },
 				},
 				delegation: { type: "client", ack_filler: false },
+			},
+		})
+		expect(upstreamBody?.session).not.toHaveProperty("model")
+	})
+
+	test("preserves an explicitly configured Codex realtime model", async () => {
+		const authFilePath = await createAuthFile()
+		let upstreamBody: Record<string, unknown> | undefined
+		const handler = createOpenAIOAuthFetchHandler({
+			authFilePath,
+			ensureFresh: false,
+			fetch: async (_input, init) => {
+				upstreamBody = JSON.parse(String(init?.body))
+				return new Response("answer", { status: 201 })
+			},
+		})
+
+		const response = await handler(
+			new Request("http://localhost/v1/realtime/calls", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					sdp: "v=0\r\n",
+					session: {
+						model: "gpt-live-1-boulder-alpha",
+						audio: { output: { voice: "cove" } },
+					},
+				}),
+			}),
+		)
+
+		expect(response.status).toBe(201)
+		expect(upstreamBody).toMatchObject({
+			sdp: "v=0\r\n",
+			session: {
+				model: "gpt-live-1-boulder-alpha",
+				audio: { output: { voice: "cove" } },
 			},
 		})
 	})

@@ -82,7 +82,7 @@ curl http://127.0.0.1:10531/v1/realtime/calls \
   -F 'session={"type":"realtime","audio":{"output":{"voice":"cove"}}};type=application/json'
 ```
 
-The mirrored Codex defaults are model `gpt-live-1-boulder-alpha`, signed 16-bit little-endian mono 24 kHz PCM, and voice `cove`.
+Codex Frameless selects its model when `model` is omitted; neither the client nor the local proxy injects one. Explicit Codex realtime models are still forwarded. The remaining defaults are signed 16-bit little-endian mono 24 kHz PCM and voice `cove`.
 
 Backend and browser clients can use the exported helpers:
 

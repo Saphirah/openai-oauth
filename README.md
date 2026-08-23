@@ -568,7 +568,7 @@ voice.interrupt(firstSpeechPcmChunk);
 
 `sendText()`, `appendAudio()`, `streamAudio()`, `interrupt(audio)`, and `close()` cover backend control. Microphone bytes, model PCM output, transcripts, and realtime events use the WebRTC data channel. The local HTTP proxy is used only to create the authenticated call.
 
-The currently mirrored Codex Frameless defaults are model `gpt-live-1-boulder-alpha`, 24 kHz mono PCM16 audio, and voice `cove`. Supported voices are `juniper`, `maple`, `spruce`, `ember`, `vale`, `breeze`, `arbor`, `sol`, and `cove`.
+Codex Frameless selects its model when `model` is omitted; the client and local proxy do not inject one. An explicitly configured Codex realtime model is still forwarded. The audio defaults are 24 kHz mono PCM16 and voice `cove`. Supported voices are `juniper`, `maple`, `spruce`, `ember`, `vale`, `breeze`, `arbor`, `sol`, and `cove`.
 
 This endpoint and client controller create the low-latency voice session. Codex's higher-level task delegation and handoff behavior still requires an application-side agent controller; it is not automatically supplied by the transport layer.
 

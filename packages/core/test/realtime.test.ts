@@ -81,29 +81,44 @@ class FakePeerConnection implements CodexRealtimePeerConnection {
 }
 
 describe("Codex Realtime", () => {
-	test("builds the public realtime session shape", () => {
+	test("builds the public realtime session shape without an implicit model", () => {
 		expect(
 			createCodexRealtimeSession({
 				voice: "sol",
 				instructions: "Be concise.",
 			}),
 		).toEqual({
-			model: "gpt-live-1-boulder-alpha",
 			instructions: "Be concise.",
 			audio: { output: { voice: "sol" } },
 		})
 	})
 
+	test("preserves explicitly configured realtime models", () => {
+		expect(createCodexRealtimeSession({ model: "gpt-live-explicit" })).toEqual({
+			model: "gpt-live-explicit",
+			instructions: "",
+			audio: { output: { voice: "cove" } },
+		})
+		expect(
+			createCodexRealtimeSession({
+				model: "gpt-live-option",
+				session: { model: "gpt-live-session" },
+			}).model,
+		).toBe("gpt-live-session")
+	})
+
 	test("creates a call through the local OAuth endpoint", async () => {
 		const fetch = vi.fn(
 			async (_input: RequestInfo | URL, init?: RequestInit) => {
-				expect(JSON.parse(String(init?.body))).toMatchObject({
+				const body = JSON.parse(String(init?.body))
+				expect(body).toEqual({
 					sdp: "offer",
 					session: {
-						model: "gpt-live-1-boulder-alpha",
+						instructions: "",
 						audio: { output: { voice: "cove" } },
 					},
 				})
+				expect(body.session).not.toHaveProperty("model")
 				return new Response("answer", {
 					status: 201,
 					headers: { Location: "/v1/realtime/calls/rtc_node" },
