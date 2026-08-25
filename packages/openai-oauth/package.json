@@ -34,7 +34,7 @@
 		"NOTICE"
 	],
 	"scripts": {
-		"build": "tsup src/index.ts src/cli.ts --format esm --dts --outDir dist --clean --loader .html=text",
+		"build": "tsup src/index.ts src/cli.ts src/realtime-lab-weather.ts --format esm --dts --outDir dist --clean --loader .html=text && tsup --config tsup.realtime.config.ts",
 		"dev": "bun ./src/cli.ts",
 		"prepublishOnly": "bun run build",
 		"typecheck": "tsc --noEmit",
@@ -45,12 +45,15 @@
 		"@openai-oauth/ai-sdk": "workspace:*",
 		"@openai-oauth/core": "workspace:*",
 		"@openai-oauth/local": "workspace:*",
+		"ajv": "8.20.0",
 		"ai": "6.0.116",
+		"ws": "8.21.0",
 		"yargs": "17.7.3"
 	},
 	"devDependencies": {
 		"@ai-sdk/openai": "3.0.41",
 		"@types/node": "20.17.24",
+		"@types/ws": "8.18.1",
 		"@types/yargs": "^17.0.33",
 		"typescript": "5.9.2",
 		"vitest": "4.1.10",

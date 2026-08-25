@@ -27,9 +27,22 @@ const baseURL = transport.baseURL;
 const fetch = transport.fetch;
 ```
 
-The transport supports Responses, model discovery, image generation, multipart image editing, and authenticated Codex Realtime call creation. Client adapters build higher-level interfaces such as Chat Completions and the local OpenAI-compatible `/v1/realtime/calls` proxy on top.
+The transport supports Responses, model discovery, image generation, multipart image editing, and Codex Frameless v3 Realtime primitives. Client adapters build higher-level interfaces such as Chat Completions on top.
 
-Realtime helpers are platform-neutral. `createCodexRealtimeCall()` performs SDP call creation, while `connectCodexRealtime()` accepts an injected WebRTC peer connection from Node.js or a browser and exposes `appendAudio()`, `streamAudio()`, `sendText()`, PCM output events, transcript events, remote-track events, and lifecycle control. Speaking while the model is responding performs the same server-side barge-in as Codex Voice; `interrupt(firstSpeechChunk)` is an explicit alias for that first audio append. `connectCodexRealtimeBrowser()` is the optional DOM convenience layer.
+Create a browser WebRTC voice connection through a running local `openai-oauth` server:
+
+```ts
+import { connectCodexRealtimeBrowser } from "@openai-oauth/core";
+
+const connection = await connectCodexRealtimeBrowser({
+	audioElement: new Audio(),
+	voice: "cove",
+	onEvent: console.log,
+});
+await connection.ready;
+```
+
+The protocol adapter exports the exact Frameless session builders, context chunking, outbound events, and event parser ported from the pinned Codex source revision in `CODEX_REALTIME_REFERENCE_COMMIT`.
 
 Create an OAuth request:
 
@@ -50,6 +63,9 @@ Core exports include:
 - `OpenAIOAuth`
 - `OpenAIOAuthSession`
 - `SessionStore`
+- `connectCodexRealtimeBrowser`
+- `createCodexFramelessSession`
+- `parseCodexFramelessEvent`
 
 ## More
 

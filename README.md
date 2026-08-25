@@ -148,7 +148,7 @@ For more information on each of the packages, refer to package-specific `README.
   - `/v1/chat/completions`
   - `/v1/files`
   - `/v1/audio/transcriptions`
-  - `/v1/realtime/calls`
+  - `/v1/realtime/calls` (Codex Frameless v3 WebRTC)
   - `/v1/models` (account-aware by default, or overridden with `--models`)
 - Streaming Responses
 - Toolcalls
@@ -529,48 +529,102 @@ curl http://127.0.0.1:10531/v1/audio/transcriptions \
 
 The required `model` field accepts `whisper-1`, `gpt-4o-transcribe`, or `gpt-4o-mini-transcribe` for client compatibility; ChatGPT OAuth transcription chooses its backend model. FLAC, WAV, MP3, M4A/MP4, WebM, and OGG inputs up to 50 MiB are supported. Responses can use `response_format=json` (the default) or `response_format=text`; streaming and timestamp/diarization formats are not supported. The ChatGPT backend currently receives only the audio file, so optional `language` and `prompt` hints are validated but not forwarded.
 
-## Realtime Voice over WebRTC
+## Realtime Voice
 
-The dev proxy exposes the OpenAI-compatible `POST /v1/realtime/calls` endpoint. It accepts the standard multipart `sdp` and optional JSON `session` fields, translates the public Realtime session into the current Codex Frameless Bidi / Quicksilver v2 session used by ChatGPT Voice, and creates the call through ChatGPT OAuth. The response body is the remote SDP answer; the `Location` header contains the realtime call ID.
-
-```bash
-curl http://127.0.0.1:10531/v1/realtime/calls \
-  -F "sdp=<offer.sdp;type=application/sdp" \
-  -F 'session={"type":"realtime","instructions":"Answer briefly.","audio":{"output":{"voice":"cove"}}};type=application/json'
-```
-
-Complete a WebRTC peer connection with the returned SDP answer. The transport is not browser-specific: `connectCodexRealtime()` accepts an injected peer connection from any browser or Node.js WebRTC implementation. `connectCodexRealtimeBrowser()` is only an optional browser convenience wrapper.
-
-For a backend-only Node.js audio pipeline, feed signed 16-bit little-endian, mono, 24 kHz PCM chunks from any async microphone stream into `streamAudio()` or `appendAudio()`. Model audio arrives independently as decoded PCM chunks through `onAudio`, so a DOM audio element or browser media track is not required. A negotiated remote track is still exposed through `onTrack` when the selected WebRTC implementation provides one. No microphone, speaker, or WebRTC package is imposed by this library.
+Realtime Voice is ported from OpenAI Codex's Frameless v3 implementation and pinned to Codex source commit `068c49f075cf287a1fe7d1ee36cf005efac922e7`. The local server creates the WebRTC call through ChatGPT OAuth and owns the authenticated `/v1/live/{call_id}` sideband. OAuth and attestation values never enter browser JavaScript.
 
 ```ts
-import { connectCodexRealtime } from "openai-oauth";
+import { connectCodexRealtimeBrowser } from "@openai-oauth/core";
 
-// `peerConnection`, `microphone`, and `speaker` come from the Node
-// WebRTC/audio implementation selected by the application.
-const voice = await connectCodexRealtime({
-  peerConnection,
-  instructions: "Answer briefly.",
-  onAudio({ data, sampleRate, numChannels }) {
-    speaker.write(data, { sampleRate, channels: numChannels });
-  },
-  onTranscript(event) {
-    process.stdout.write(`${event.role}: ${event.text}`);
-  },
+const audio = new Audio();
+const connection = await connectCodexRealtimeBrowser({
+	audioElement: audio,
+	instructions: "Answer naturally and concisely.",
+	voice: "cove",
+	onEvent(event) {
+		if (event.kind === "transcript") console.log(event.role, event.text);
+	},
 });
 
-await voice.streamAudio(microphone);
-
-// Speech streamed while the assistant talks interrupts it server-side.
-// To name the first barge-in frame explicitly:
-voice.interrupt(firstSpeechPcmChunk);
+await connection.ready;
+connection.sendText("Hello from the same realtime session.");
 ```
 
-`sendText()`, `appendAudio()`, `streamAudio()`, `interrupt(audio)`, and `close()` cover backend control. Microphone bytes, model PCM output, transcripts, and realtime events use the WebRTC data channel. The local HTTP proxy is used only to create the authenticated call.
+The current Codex default model is `gpt-live-1-codex`. Supported Frameless voices are `juniper`, `maple`, `spruce`, `ember`, `vale`, `breeze`, `arbor`, `sol`, and `cove`.
 
-Codex Frameless selects its model when `model` is omitted; the client and local proxy do not inject one. An explicitly configured Codex realtime model is still forwarded. The audio defaults are 24 kHz mono PCM16 and voice `cove`. Supported voices are `juniper`, `maple`, `spruce`, `ember`, `vale`, `breeze`, `arbor`, `sol`, and `cove`.
+Start the local server and open [http://127.0.0.1:10531/realtime](http://127.0.0.1:10531/realtime) for an interactive browser test. The Realtime Voice Lab requests microphone permission and creates a call only after you press **Start & Mikrofon freigeben**.
 
-This endpoint and client controller create the low-latency voice session. Codex's higher-level task delegation and handoff behavior still requires an application-side agent controller; it is not automatically supplied by the transport layer.
+Codex attestation is a host capability, not a token derived from OAuth. If your embedding host can answer Codex's `attestation/generate` request, pass the opaque token programmatically; the server wraps it in Codex's exact `{v,s,t}` envelope and reuses that header only for the corresponding call and sideband:
+
+```ts
+import { startOpenAIOAuthServer } from "openai-oauth";
+
+await startOpenAIOAuthServer({
+	realtimeAttestation: async ({ sessionId }) =>
+		trustedHost.generateAttestation({ sessionId }),
+});
+```
+
+When no host opts into attestation, the header is omitted, matching Codex app-server behavior. Availability can still depend on the ChatGPT account and upstream rollout.
+
+### Realtime function calls
+
+The ChatGPT OAuth call route above implements Codex **Frameless v3**. Its session schema supports `model`, `instructions`, `audio.output.voice`, `delegation`, and `initial_items`; it does not define regular `tools` or `tool_choice`. Frameless delegation uses `delegation.context.append` and is not the public Realtime function-call protocol. Requests containing `tools` or `tool_choice` therefore fail explicitly instead of silently discarding the tool configuration.
+
+Regular function calls are available through the public **Realtime v2** API with API-key authentication. The tested lifecycle is:
+
+1. `session.update` supplies `tools` entries with `type`, `name`, `description`, and JSON Schema `parameters`, plus `tool_choice`.
+2. `response.function_call_arguments.done` returns `name`, `call_id`, and JSON-string `arguments`.
+3. `conversation.item.create` supplies an item with `type: "function_call_output"`, the matching `call_id`, and a string `output`.
+4. `response.create` lets the assistant continue; text completion arrives as `response.output_text.done`.
+
+Run the reproducible live API test with an API key in the environment:
+
+```bash
+node scripts/realtime-function-call-smoke.mjs
+```
+
+This deliberately uses `gpt-realtime-1.5` and the public `wss://api.openai.com/v1/realtime` endpoint. It is a separate authentication and protocol path from the OAuth-backed Frameless voice route.
+
+#### Generic tools through Frameless delegation
+
+Frameless v3 can still drive arbitrary application tools through Codex's official orchestration pattern. The voice model emits `delegation.created`; the local sideband uses the delegation item's `id` as a stable call id and passes its natural-language content plus the registered tool schemas to an explicit, provider-agnostic `selectTool` callback. The callback may call any AI backend, but it must return a normal `{ name, arguments }` decision. The local dispatcher then verifies the tool name, validates arguments against JSON Schema, executes the registered handler once per call id, and returns progress/results with `delegation.context.append`.
+
+```ts
+await startOpenAIOAuthServer({
+	realtimeTools: {
+		tools: [
+			{
+				name: "set_light",
+				description: "Set a room light.",
+				parameters: {
+					type: "object",
+					properties: {
+						room: { type: "string" },
+						state: { enum: ["on", "off"] },
+					},
+					required: ["room", "state"],
+					additionalProperties: false,
+				},
+				async execute(args, { reportProgress }) {
+					reportProgress("Updating the light.");
+					return homeAutomation.setLight(args);
+				},
+			},
+		],
+		async selectTool({ callId, input, tools }) {
+			const response = await fetch("https://your-ai-backend.example/tool-selection", {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ callId, input, tools }),
+			});
+			return response.json(); // { name: "set_light", arguments: {...} }
+		},
+	},
+});
+```
+
+This does **not** claim that Frameless v3 exposed native arbitrary `function_call` events: tool selection happens at the documented application callback boundary after a native delegation. No hidden prompt-JSON convention is used.
 
 ## Sign in with ChatGPT Setup
 

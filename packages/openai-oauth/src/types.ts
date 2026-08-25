@@ -1,5 +1,7 @@
 import type { Server as HttpServer } from "node:http"
 import type { LocalOpenAIOAuthOptions } from "@openai-oauth/local"
+import type { CodexAttestationProvider } from "./realtime-attestation.js"
+import type { RealtimeToolDispatcherOptions } from "./realtime-tool-dispatcher.js"
 
 export type JsonValue =
 	| null
@@ -124,6 +126,18 @@ export type OpenAIOAuthServerOptions = LocalOpenAIOAuthOptions & {
 	models?: string[]
 	codexVersion?: string
 	requestLogger?: (event: OpenAIOAuthServerLogEvent) => void
+	/**
+	 * Host callback for Codex's server-initiated `attestation/generate` request.
+	 * Return the opaque client token; the server creates Codex's `{v,s,t}` header.
+	 */
+	realtimeAttestation?: CodexAttestationProvider
+	/**
+	 * Generic application-tool bridge for native Frameless v3 delegation events.
+	 * Tool selection is delegated to the configured provider-agnostic callback.
+	 */
+	realtimeTools?: RealtimeToolDispatcherOptions
+	/** Override for tests or a private Codex-compatible transceiver. */
+	realtimeWebSocketBaseURL?: string
 }
 
 export type RunningOpenAIOAuthServer = {

@@ -13,6 +13,8 @@
 	},
 	"scripts": {
 		"build": "turbo run build",
+		"realtime:lab": "npm run build --workspace=@openai-oauth/core && npm run build --workspace=openai-oauth && node scripts/realtime-lab.mjs",
+		"realtime:function-call-smoke": "node scripts/realtime-function-call-smoke.mjs",
 		"dev": "turbo run dev --parallel",
 		"typecheck": "turbo run typecheck",
 		"test": "turbo run test",

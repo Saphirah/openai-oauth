@@ -1,204 +1,157 @@
-import { describe, expect, test, vi } from "vitest"
+import { describe, expect, test } from "vitest"
 import {
 	type CodexRealtimeDataChannel,
 	type CodexRealtimePeerConnection,
+	type CodexRealtimeWebSocket,
 	connectCodexRealtime,
 	createCodexRealtimeCall,
-	createCodexRealtimeSession,
-	parseCodexRealtimeTranscriptEvent,
 } from "../src/index.js"
 
-class FakeDataChannel implements CodexRealtimeDataChannel {
-	readyState = "connecting"
-	sent: string[] = []
-	private readonly listeners = new Map<string, Set<(event: unknown) => void>>()
+class EventTargetFake {
+	private readonly listeners = new Map<
+		string,
+		Array<(event: unknown) => void>
+	>()
+	addEventListener(type: string, listener: (event: unknown) => void): void {
+		const listeners = this.listeners.get(type) ?? []
+		listeners.push(listener)
+		this.listeners.set(type, listeners)
+	}
+	emit(type: string, event: unknown = {}): void {
+		for (const listener of this.listeners.get(type) ?? []) listener(event)
+	}
+}
 
+class FakeDataChannel
+	extends EventTargetFake
+	implements CodexRealtimeDataChannel
+{
+	readyState = "connecting"
+	readonly sent: string[] = []
 	send(data: string): void {
 		this.sent.push(data)
 	}
-
 	close(): void {
 		this.readyState = "closed"
-		this.emit("close", {})
-	}
-
-	addEventListener(type: string, listener: (event: unknown) => void): void {
-		const listeners = this.listeners.get(type) ?? new Set()
-		listeners.add(listener)
-		this.listeners.set(type, listeners)
-	}
-
-	removeEventListener(type: string, listener: (event: unknown) => void): void {
-		this.listeners.get(type)?.delete(listener)
-	}
-
-	open(): void {
-		this.readyState = "open"
-		this.emit("open", {})
-	}
-
-	emit(type: string, event: unknown): void {
-		for (const listener of this.listeners.get(type) ?? []) {
-			listener(event)
-		}
 	}
 }
 
-class FakePeerConnection implements CodexRealtimePeerConnection {
+class FakePeer extends EventTargetFake implements CodexRealtimePeerConnection {
 	localDescription: { sdp?: string | null } | null = null
 	connectionState = "new"
 	readonly channel = new FakeDataChannel()
-	remoteDescription: unknown
-	closed = false
-	private readonly listeners = new Map<string, Set<(event: unknown) => void>>()
-
-	createDataChannel(label: string): FakeDataChannel {
-		expect(label).toBe("oai-events")
+	readonly remoteDescriptions: unknown[] = []
+	createDataChannel(): CodexRealtimeDataChannel {
 		return this.channel
 	}
-
 	async createOffer(): Promise<unknown> {
-		return { type: "offer", sdp: "v=0\r\ns=node-offer\r\n" }
+		return { type: "offer", sdp: "offer-sdp" }
 	}
-
 	async setLocalDescription(description: unknown): Promise<void> {
 		this.localDescription = description as { sdp?: string | null }
 	}
-
 	async setRemoteDescription(description: unknown): Promise<void> {
-		this.remoteDescription = description
+		this.remoteDescriptions.push(description)
 	}
-
+	addTransceiver(): unknown {
+		return undefined
+	}
 	close(): void {
-		this.closed = true
-	}
-
-	addEventListener(type: string, listener: (event: unknown) => void): void {
-		const listeners = this.listeners.get(type) ?? new Set()
-		listeners.add(listener)
-		this.listeners.set(type, listeners)
+		this.connectionState = "closed"
 	}
 }
 
-describe("Codex Realtime", () => {
-	test("builds the public realtime session shape without an implicit model", () => {
-		expect(
-			createCodexRealtimeSession({
-				voice: "sol",
-				instructions: "Be concise.",
-			}),
-		).toEqual({
-			instructions: "Be concise.",
-			audio: { output: { voice: "sol" } },
-		})
-	})
+class FakeWebSocket extends EventTargetFake implements CodexRealtimeWebSocket {
+	readyState = 0
+	readonly sent: string[] = []
+	send(data: string): void {
+		this.sent.push(data)
+	}
+	close(): void {
+		this.readyState = 3
+	}
+	open(): void {
+		this.readyState = 1
+		this.emit("open")
+	}
+	message(value: unknown): void {
+		this.emit("message", { data: JSON.stringify(value) })
+	}
+}
 
-	test("preserves explicitly configured realtime models", () => {
-		expect(createCodexRealtimeSession({ model: "gpt-live-explicit" })).toEqual({
-			model: "gpt-live-explicit",
-			instructions: "",
-			audio: { output: { voice: "cove" } },
-		})
-		expect(
-			createCodexRealtimeSession({
-				model: "gpt-live-option",
-				session: { model: "gpt-live-session" },
-			}).model,
-		).toBe("gpt-live-session")
-	})
-
-	test("creates a call through the local OAuth endpoint", async () => {
-		const fetch = vi.fn(
-			async (_input: RequestInfo | URL, init?: RequestInit) => {
-				const body = JSON.parse(String(init?.body))
-				expect(body).toEqual({
-					sdp: "offer",
-					session: {
-						instructions: "",
-						audio: { output: { voice: "cove" } },
+describe("Codex realtime WebRTC orchestration", () => {
+	test("resolves a relative call endpoint before constructing the sideband URL", async () => {
+		const requests: string[] = []
+		const call = await createCodexRealtimeCall("v=0\r\n", {
+			endpoint: "/v1/realtime/calls",
+			fetch: async (input) => {
+				requests.push(String(input))
+				return new Response("v=0\r\n", {
+					headers: {
+						"x-openai-oauth-realtime-call-id": "rtc_relative",
+						"x-openai-oauth-realtime-sideband": "/v1/realtime/sideband/token",
 					},
 				})
-				expect(body.session).not.toHaveProperty("model")
-				return new Response("answer", {
+			},
+		})
+
+		expect(requests).toEqual(["http://127.0.0.1:10531/v1/realtime/calls"])
+		expect(call.sidebandUrl).toBe(
+			"ws://127.0.0.1:10531/v1/realtime/sideband/token",
+		)
+	})
+
+	test("waits for the authenticated upstream sideband before flushing control events", async () => {
+		const peer = new FakePeer()
+		const sideband = new FakeWebSocket()
+		const events: unknown[] = []
+		const connection = await connectCodexRealtime({
+			peerConnection: peer,
+			endpoint: "http://127.0.0.1:10531/v1/realtime/calls",
+			fetch: async (_input, init) => {
+				expect(JSON.parse(String(init?.body))).toMatchObject({
+					sdp: "offer-sdp",
+					session: { model: "gpt-live-1-codex" },
+				})
+				return new Response("answer-sdp", {
 					status: 201,
-					headers: { Location: "/v1/realtime/calls/rtc_node" },
+					headers: {
+						location: "/v1/live/rtc_browser",
+						"x-openai-oauth-realtime-sideband": "/v1/realtime/sideband/token",
+					},
 				})
 			},
-		)
-
-		await expect(
-			createCodexRealtimeCall({ sdp: "offer", fetch }),
-		).resolves.toEqual({
-			sdp: "answer",
-			callId: "rtc_node",
-			location: "/v1/realtime/calls/rtc_node",
-		})
-	})
-
-	test("drives an injected backend WebRTC adapter and raw PCM events", async () => {
-		const peerConnection = new FakePeerConnection()
-		const transcripts: string[] = []
-		const audio: number[][] = []
-		const connection = await connectCodexRealtime({
-			peerConnection,
-			fetch: async () =>
-				new Response("v=0\r\ns=node-answer\r\n", {
-					status: 201,
-					headers: { Location: "/v1/realtime/calls/rtc_backend" },
-				}),
-			onTranscript: (event) => transcripts.push(event.text),
-			onAudio: (event) => audio.push([...event.data]),
+			webSocket: () => sideband,
+			onEvent: (event) => events.push(event),
 		})
 
-		expect(connection.callId).toBe("rtc_backend")
-		expect(peerConnection.remoteDescription).toEqual({
-			type: "answer",
-			sdp: "v=0\r\ns=node-answer\r\n",
+		sideband.open()
+		connection.sendText("Hello")
+		expect(sideband.sent).toEqual([])
+		sideband.message({
+			type: "openai_oauth.sideband.connected",
+			call_id: "rtc_browser",
 		})
-		connection.appendAudio(new Uint8Array([1, 2, 3]))
-		connection.interrupt(new Uint8Array([4, 5, 6]))
-		expect(peerConnection.channel.sent).toEqual([])
-
-		peerConnection.channel.open()
 		await connection.ready
-		expect(
-			peerConnection.channel.sent.map((value) => JSON.parse(value)),
-		).toEqual([
-			{ type: "input_audio.append", audio: "AQID" },
-			{ type: "input_audio.append", audio: "BAUG" },
+		expect(sideband.sent.map((value) => JSON.parse(value))).toEqual([
+			{
+				type: "session.context.append",
+				content: [{ type: "input_text", text: "Hello" }],
+			},
 		])
-
-		peerConnection.channel.emit("message", {
-			data: JSON.stringify({
-				type: "output_transcript.added",
-				item: { text: "Hello" },
-			}),
+		sideband.message({
+			type: "output_transcript.added",
+			item: { text: "Hi" },
 		})
-		peerConnection.channel.emit("message", {
-			data: JSON.stringify({ type: "output_audio.delta", audio: "AQID" }),
+		expect(events).toHaveLength(1)
+		expect(events[0]).toMatchObject({
+			kind: "transcript",
+			role: "assistant",
+			text: "Hi",
 		})
-		expect(transcripts).toEqual(["Hello"])
-		expect(audio).toEqual([[1, 2, 3]])
-
+		expect(peer.remoteDescriptions).toEqual([
+			{ type: "answer", sdp: "answer-sdp" },
+		])
 		connection.close()
-		expect(peerConnection.closed).toBe(true)
-		expect(JSON.parse(peerConnection.channel.sent.at(-1) ?? "{}")).toEqual({
-			type: "session.close",
-		})
-	})
-
-	test("parses Frameless user and assistant transcript events", () => {
-		expect(
-			parseCodexRealtimeTranscriptEvent({
-				type: "turn.done",
-				turn: { role: "user", transcript: "What changed?" },
-			}),
-		).toMatchObject({ role: "user", kind: "done", text: "What changed?" })
-		expect(
-			parseCodexRealtimeTranscriptEvent({
-				type: "output_transcript.added",
-				item: { text: "I changed" },
-			}),
-		).toMatchObject({ role: "assistant", kind: "delta", text: "I changed" })
 	})
 })

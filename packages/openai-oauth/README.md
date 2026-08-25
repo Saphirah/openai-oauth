@@ -74,25 +74,13 @@ curl http://127.0.0.1:10531/v1/audio/transcriptions \
   -F model=whisper-1
 ```
 
-Realtime voice uses the OpenAI-compatible WebRTC call-creation shape. The proxy converts the public `realtime` session to the current Codex Frameless Bidi / Quicksilver v2 session and returns the SDP answer and upstream `Location` call ID. Media and realtime events flow directly over the resulting peer connection.
+Realtime calls use the Codex Frameless v3 flow: WebRTC signaling is sent to ChatGPT OAuth as the Codex backend JSON shape, while the local Node server relays the authenticated `wss://api.openai.com/v1/live/{call_id}` sideband. The implementation is pinned to OpenAI Codex commit `068c49f075cf287a1fe7d1ee36cf005efac922e7` and defaults to `gpt-live-1-codex` with voice `cove`.
 
-```bash
-curl http://127.0.0.1:10531/v1/realtime/calls \
-  -F "sdp=<offer.sdp;type=application/sdp" \
-  -F 'session={"type":"realtime","audio":{"output":{"voice":"cove"}}};type=application/json'
-```
+After starting the local server, open `http://127.0.0.1:10531/realtime` to test microphone input, WebRTC audio, transcripts, text context, and Frameless events in the browser. The page does not request microphone access or create a call until you press **Start & Mikrofon freigeben**.
 
-Codex Frameless selects its model when `model` is omitted; neither the client nor the local proxy injects one. Explicit Codex realtime models are still forwarded. The remaining defaults are signed 16-bit little-endian mono 24 kHz PCM and voice `cove`.
+Hosts that implement Codex's `attestation/generate` capability can provide the opaque token with `realtimeAttestation`; this package creates the exact Codex `{v,s,t}` header envelope. Without a host provider, the attestation header is omitted exactly as it is by Codex app-server.
 
-Backend and browser clients can use the exported helpers:
-
-- `createCodexRealtimeCall()` performs only authenticated SDP call creation.
-- `connectCodexRealtime()` accepts any injected browser or Node.js WebRTC peer connection. It exposes raw PCM input/output, transcript events, text input, natural speech interruption, and lifecycle controls without depending on a particular microphone, speaker, or WebRTC package.
-- `connectCodexRealtimeBrowser()` optionally handles browser microphone capture and audio playback.
-
-For backend audio, pass any `AsyncIterable` of 24 kHz mono PCM16 chunks—including a Node.js `Readable`—to `connection.streamAudio(source)`, or call `appendAudio(chunk)` yourself. Consume decoded output chunks with `onAudio`; each event contains a `Uint8Array`, sample rate, and channel count. Streaming speech while the assistant is talking performs server-side barge-in. `interrupt(firstSpeechChunk)` names that operation explicitly; Frameless has no separate cancel command.
-
-This transport establishes realtime speech-to-speech. Reproducing Codex task delegation additionally requires an application-side agent controller.
+Frameless v3 does not accept arbitrary `tools` in its session schema. To execute application-defined tools with the official Codex orchestration pattern, configure `realtimeTools` on `startOpenAIOAuthServer`. Native `delegation.created` events are passed to the provider-agnostic `selectTool({ callId, input, tools })` callback; its `{name, arguments}` decision is checked against the registry and JSON Schema before the handler runs. Progress and the deduplicated result return through `delegation.context.append`. See the repository root README for the complete example and protocol boundary.
 
 ```bash
 curl http://127.0.0.1:10531/v1/images/generations \
